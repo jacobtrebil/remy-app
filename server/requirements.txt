@@ -1,0 +1,8 @@
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+pydantic==2.13.4
+# httpx[http2] pulls in h2 — APNs only speaks HTTP/2.
+httpx[http2]==0.28.1
+# PyJWT needs cryptography for the ES256 signing that .p8 provider tokens use.
+PyJWT[crypto]==2.13.0
+python-dotenv==1.2.2

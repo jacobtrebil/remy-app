@@ -30,14 +30,21 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# env files — env.example is the committed template
+.env
+.env.*
+!env.example
 
 # typescript
 *.tsbuildinfo
 
-example
-
 # generated native folders
 /ios
 /android
+
+# server
+server/venv/
+server/.venv/
+server/data/
+server/**/__pycache__/
+*.pyc

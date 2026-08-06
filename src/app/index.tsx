@@ -1,98 +1,140 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Notifications from 'expo-notifications';
+import { Link, router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
+import { AlertCard } from '@/components/alert-card';
+import { StatusBanner } from '@/components/status-banner';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
+import { useAlertRegistration } from '@/hooks/use-alert-registration';
+import { useTheme } from '@/hooks/use-theme';
+import { fetchAlerts } from '@/lib/api';
+import type { Alert } from '@/lib/types';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+export default function AlertFeed() {
+  const theme = useTheme();
+  const registration = useAlertRegistration();
+  const [alerts, setAlerts] = useState<Alert[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setAlerts(await fetchAlerts());
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  // Refresh whenever the feed comes back into view (e.g. after acknowledging).
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
+
+  // A push arriving while the app is open should update the list behind it.
+  useEffect(() => {
+    const sub = Notifications.addNotificationReceivedListener(() => void load());
+    return () => sub.remove();
+  }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([load(), registration.refresh()]);
+    setRefreshing(false);
+  }, [load, registration]);
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
+    <FlatList
+      data={alerts ?? []}
+      keyExtractor={(item) => item.id}
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      ListHeaderComponent={
+        <View style={styles.header}>
+          <StatusBanner {...registration} onPrompt={registration.prompt} />
+          <Link href="/settings" asChild>
+            <Pressable style={[styles.settings, { backgroundColor: theme.backgroundElement }]}>
+              <ThemedText type="small">Settings &amp; test alert</ThemedText>
+            </Pressable>
+          </Link>
+        </View>
+      }
+      ListEmptyComponent={
+        <Empty loading={alerts === null && !error} error={error} onRetry={load} />
+      }
+      renderItem={({ item }) => (
+        <AlertCard alert={item} onPress={() => router.push(`/alert/${item.id}`)} />
+      )}
+    />
   );
 }
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+function Empty({
+  loading,
+  error,
+  onRetry,
+}: {
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (loading) {
+    return (
+      <View style={styles.empty}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
 
-        <ThemedText type="code" style={styles.code}>
-          get started
+  if (error) {
+    return (
+      <View style={styles.empty}>
+        <ThemedText type="default">Couldn&apos;t load alerts</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" style={styles.centered}>
+          {error}
         </ThemedText>
+        <Pressable onPress={onRetry}>
+          <ThemedText type="linkPrimary">Try again</ThemedText>
+        </Pressable>
+      </View>
+    );
+  }
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+  return (
+    <View style={styles.empty}>
+      <ThemedText type="default">All quiet</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary" style={styles.centered}>
+        Alerts from your Remy cameras will appear here.
+      </ThemedText>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
+  content: {
+    padding: Spacing.three,
+    gap: Spacing.two,
   },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
+  header: {
+    gap: Spacing.two,
+    marginBottom: Spacing.one,
+  },
+  settings: {
     alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
+    paddingVertical: Spacing.three,
+    borderRadius: 12,
   },
-  heroSection: {
+  empty: {
     alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
+    gap: Spacing.two,
+    paddingTop: Spacing.six,
   },
-  title: {
+  centered: {
     textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
   },
 });
