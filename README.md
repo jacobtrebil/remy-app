@@ -51,7 +51,10 @@ app tracks that, and it is sent to the server on every registration.
 
 ### 1. The app
 
+Expo SDK 57 needs Node ≥ 20.19.4 — `.nvmrc` pins a known-good version:
+
 ```bash
+nvm use                    # or: nvm install
 npm install
 cp env.example .env        # optional in dev; see src/lib/config.ts for the fallback
 ```
@@ -179,6 +182,9 @@ Then re-run `npx expo prebuild --clean` so it lands in the bundle.
   alongside the critical sound in `server/app/apns.py`.
 - **Android** is scaffolded (notification channel with `bypassDnd`) but there is
   no FCM sender yet; `_fan_out` returns `UnsupportedPlatform` for those devices.
+- **`types/expo.d.ts` is committed on purpose.** Expo writes an equivalent
+  `expo-env.d.ts` on first `expo start`, but that file is gitignored — without
+  this one, `npm run typecheck` fails on a clean clone.
 
 ## Storage
 
