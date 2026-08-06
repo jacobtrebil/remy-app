@@ -8,6 +8,8 @@ type Props = RegistrationState & {
   onPrompt: () => void;
 };
 
+type Signals = Pick<RegistrationState, 'permissions' | 'error' | 'registered'>;
+
 /**
  * The one thing a caregiver needs to see at a glance: whether a critical alert
  * would actually reach them right now. Silent when everything is wired up.
@@ -39,7 +41,7 @@ export function StatusBanner({ permissions, error, registered, busy, onPrompt }:
   );
 }
 
-function resolve({ permissions, error, registered }: Omit<Props, 'onPrompt' | 'busy'>) {
+function resolve({ permissions, error, registered }: Signals) {
   const RED = { color: '#D93025', tint: 'rgba(217, 48, 37, 0.10)' };
   const AMBER = { color: '#E8890C', tint: 'rgba(232, 137, 12, 0.10)' };
 

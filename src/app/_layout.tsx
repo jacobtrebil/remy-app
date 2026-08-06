@@ -36,7 +36,7 @@ function useNotificationTaps() {
     function open(response: Notifications.NotificationResponse | null) {
       const data = response?.notification.request.content.data as AlertPushData | undefined;
       if (!cancelled && data?.alert_id) {
-        router.push(`/alert/${data.alert_id}`);
+        router.push({ pathname: '/alert/[id]', params: { id: data.alert_id } });
       }
     }
 

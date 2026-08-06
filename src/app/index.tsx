@@ -41,11 +41,12 @@ export default function AlertFeed() {
     return () => sub.remove();
   }, [load]);
 
+  const { refresh: refreshRegistration } = registration;
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([load(), registration.refresh()]);
+    await Promise.all([load(), refreshRegistration()]);
     setRefreshing(false);
-  }, [load, registration]);
+  }, [load, refreshRegistration]);
 
   return (
     <FlatList
@@ -68,7 +69,10 @@ export default function AlertFeed() {
         <Empty loading={alerts === null && !error} error={error} onRetry={load} />
       }
       renderItem={({ item }) => (
-        <AlertCard alert={item} onPress={() => router.push(`/alert/${item.id}`)} />
+        <AlertCard
+          alert={item}
+          onPress={() => router.push({ pathname: '/alert/[id]', params: { id: item.id } })}
+        />
       )}
     />
   );
