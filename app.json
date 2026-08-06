@@ -49,7 +49,7 @@
         {
           "icon": "./assets/images/icon.png",
           "color": "#D93025",
-          "sounds": ["./assets/sounds/remy-critical.wav"],
+          "sounds": ["./assets/sounds/remy_critical.wav"],
           "enableBackgroundRemoteNotifications": true
         }
       ]

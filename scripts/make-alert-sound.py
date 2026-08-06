@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Generate assets/sounds/remy-critical.wav — the bundled critical-alert tone.
+"""Generate assets/sounds/remy_critical.wav — the bundled critical-alert tone.
 
-iOS plays this file when an APNs payload carries `sound: {critical: 1, name: "remy-critical.wav"}`.
+iOS plays this file when an APNs payload carries `sound: {critical: 1, name: "remy_critical.wav"}`.
 Constraints: <= 30s, and it must be in the app bundle (the expo-notifications plugin's
 `sounds` array copies it there at prebuild time).
+
+The underscore is not cosmetic: the same plugin copies this into Android's
+res/raw, where resource names must be [a-z0-9_] only. A hyphen fails prebuild.
 
 Run: python3 scripts/make-alert-sound.py
 """
@@ -14,7 +17,7 @@ import wave
 from pathlib import Path
 
 SAMPLE_RATE = 44100
-OUT = Path(__file__).resolve().parent.parent / "assets" / "sounds" / "remy-critical.wav"
+OUT = Path(__file__).resolve().parent.parent / "assets" / "sounds" / "remy_critical.wav"
 
 # Two-tone alarm: high/low pairs, three times. Deliberately unlike any default iOS tone.
 PATTERN = [(880.0, 0.22), (0.0, 0.06), (660.0, 0.22), (0.0, 0.28)] * 3

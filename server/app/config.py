@@ -77,5 +77,5 @@ def get_settings() -> Settings:
         api_key=os.getenv("API_KEY", ""),
         internal_api_key=os.getenv("INTERNAL_API_KEY", ""),
         database_path=Path(os.getenv("DATABASE_PATH", str(SERVER_DIR / "data" / "remy.db"))),
-        critical_sound=os.getenv("CRITICAL_SOUND", "remy-critical.wav"),
+        critical_sound=os.getenv("CRITICAL_SOUND", "remy_critical.wav"),
     )

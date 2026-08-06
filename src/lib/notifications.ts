@@ -89,7 +89,7 @@ export async function getDevicePushToken(): Promise<string | null> {
     await Notifications.setNotificationChannelAsync('critical', {
       name: 'Critical alerts',
       importance: Notifications.AndroidImportance.MAX,
-      sound: 'remy-critical.wav',
+      sound: 'remy_critical.wav',
       vibrationPattern: [0, 400, 200, 400],
       bypassDnd: true,
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
