@@ -14,20 +14,34 @@ So: no packaging step to invent. What follows is build + submit.
 
 These are ordered by how likely they are to get the submission rejected.
 
-### 1. The backend must be publicly reachable during review
+### 1. The push service is not deployed yet
 
-App Review runs the app on a device in California. Right now `server/` runs on
-your laptop, and `eas.json` points production builds at
-`https://alerts.remycamera.com`, which does not exist yet.
+`eas.json` points production builds at `https://app.remycamera.com`. That host is
+live on Railway, but it serves the **Vite web app** ("Remy — Care Companion"),
+not this repo's `server/`. Being a single-page app, it answers *every* path with
+`200 text/html`:
 
-A reviewer who opens the app and sees *"Can't reach the alert service"* is a
-**Guideline 2.1 — App Completeness** rejection, and it is the single most likely
-way this submission fails.
+```
+$ curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://app.remycamera.com/api/alerts
+200 text/html; charset=utf-8
+```
 
-Deploy `server/` somewhere with a real TLS certificate (Railway already hosts
-remy-camera, so that is the path of least resistance), point the DNS record at
-it, and confirm `https://alerts.remycamera.com/health` answers from outside your
-network before you submit.
+So the alert endpoints resolve to the web app's `index.html`. `src/lib/api.ts`
+detects the non-JSON response and reports it plainly rather than dying on a JSON
+parse error, but the app has no data until `server/` is actually deployed there.
+
+Two ways to fix it, both fine:
+
+- **Separate Railway service** on its own subdomain, then point
+  `EXPO_PUBLIC_API_URL` at that. Simplest, and keeps the push service
+  independently deployable.
+- **Same domain, path-prefixed** — route `app.remycamera.com/api/alerts/*` to
+  this service ahead of the SPA catch-all.
+
+App Review runs the app on a device in California. A reviewer who opens it and
+sees an error instead of alerts is a **Guideline 2.1 — App Completeness**
+rejection, and it is the most likely way this submission fails. Confirm
+`/health` answers from outside your network before submitting.
 
 ### 2. Every device currently sees every alert
 

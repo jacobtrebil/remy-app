@@ -34,6 +34,20 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   if (res.status === 204) return undefined as T;
+
+  // A single-page app deployed at the same host answers every unknown path with
+  // 200 + index.html rather than 404, so res.ok is not enough to conclude we
+  // reached the alert service. Without this check the failure surfaces as an
+  // unintelligible JSON parse error somewhere downstream.
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!contentType.includes('json')) {
+    throw new ApiError(
+      res.status,
+      `${API_URL} answered with ${contentType || 'an unknown type'} instead of JSON — ` +
+        `the alert service does not appear to be deployed there.`
+    );
+  }
+
   return (await res.json()) as T;
 }
 
