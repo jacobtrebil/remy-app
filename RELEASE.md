@@ -2,81 +2,58 @@
 
 This app is **already a native iOS app**. `npx expo prebuild` generates a real
 Xcode project in `ios/` that compiles to a normal `.ipa` — there is no web view
-and nothing to wrap. Adding Capacitor would mean rewriting the UI as a web page
-inside a `WKWebView` and rebuilding the notification layer as a custom plugin,
-which would cost the critical-alert integration for nothing in return.
-
-So: no packaging step to invent. What follows is build + submit.
+and nothing to wrap.
 
 ---
 
 ## Blockers to clear first
 
-These are ordered by how likely they are to get the submission rejected.
+Ordered by how likely they are to sink the submission.
 
-### 1. The push service is not deployed yet
+### 1. The control-plane URL must be set
 
-`eas.json` points production builds at `https://app.remycamera.com`. That host is
-live on Railway, but it serves the **Vite web app** ("Remy — Care Companion"),
-not this repo's `server/`. Being a single-page app, it answers *every* path with
-`200 text/html`:
+`eas.json` still carries a placeholder:
 
 ```
-$ curl -s -o /dev/null -w '%{http_code} %{content_type}\n' https://app.remycamera.com/api/alerts
-200 text/html; charset=utf-8
+EXPO_PUBLIC_CONTROL_PLANE_URL: https://REPLACE-WITH-CONTROL-PLANE.up.railway.app
 ```
 
-So the alert endpoints resolve to the web app's `index.html`. `src/lib/api.ts`
-detects the non-JSON response and reports it plainly rather than dying on a JSON
-parse error, but the app has no data until `server/` is actually deployed there.
+That is the only backend URL the app needs — every home's endpoint comes back
+from `GET /me/sites`. Replace it in all four build profiles with the deployed
+Railway address, and confirm `/health` answers from outside your network before
+you submit.
 
-Two ways to fix it, both fine:
+App Review runs the app on a device in California. A reviewer who signs in and
+sees "Not configured" or a connection error is a **Guideline 2.1 — App
+Completeness** rejection.
 
-- **Separate Railway service** on its own subdomain, then point
-  `EXPO_PUBLIC_API_URL` at that. Simplest, and keeps the push service
-  independently deployable.
-- **Same domain, path-prefixed** — route `app.remycamera.com/api/alerts/*` to
-  this service ahead of the SPA catch-all.
+### 2. The reviewer needs an account with a home on it
 
-App Review runs the app on a device in California. A reviewer who opens it and
-sees an error instead of alerts is a **Guideline 2.1 — App Completeness**
-rejection, and it is the most likely way this submission fails. Confirm
-`/health` answers from outside your network before submitting.
+There is no anonymous mode. A reviewer who signs in to an empty account sees "No
+homes yet" and cannot evaluate the app.
 
-### 2. Every device currently sees every alert
+Create a demo Remy account, grant it access to a home with real (or realistic)
+events, and put the credentials in App Store Connect → **App Review Information
+→ Sign-In Required**. Verify the events are actually visible to *that* account,
+not just yours — access is grant-scoped, so an untested demo account is the
+classic way this fails.
 
-`GET /api/alerts` returns the full alert table to anyone holding `API_KEY` — and
-`API_KEY` ships inside the app bundle, so it is public by construction. That is
-fine for one household running its own server. It is **not** shippable to the
-App Store, where household B would read household A's alerts, including camera
-event descriptions and timestamps.
+### 3. Privacy policy URL
 
-Before public distribution, alerts need to be scoped to an account or household,
-and the app needs a sign-in to establish which one. This is a real feature, not
-a config change — worth deciding on before you spend time on store metadata.
+The app signs users in and reads camera-derived event summaries, so App Store
+Connect requires a privacy policy URL. `app.config.ts` declares the matching
+privacy manifest — the hosted policy must agree with it.
 
-If you only want this on your own family's phones, **TestFlight internal testing
-sidesteps all of this** and needs no review. That may be the right destination
-for a while.
+Note that the app itself collects nothing new: it reads what the caregiver
+already has access to on the web. The policy should reflect the backend's data
+practices, not describe the app as a separate collector.
 
-### 3. Critical alerts entitlement
+### 4. Camera and health framing
 
-Do not submit a build requesting the entitlement before Apple grants it — the
-upload fails signing validation. `app.config.ts` keeps it out by default:
-
-```bash
-eas build --profile production            # no entitlement (use until approved)
-eas build --profile production-critical   # entitlement on (use after approval)
-```
-
-Once approved, `production-critical` is the profile you ship.
-
-### 4. Privacy policy URL
-
-The app registers a device identifier and push token, so App Store Connect
-requires a privacy policy URL. `app.config.ts` declares the matching privacy
-manifest (device ID, app functionality, not linked, not tracking) — the hosted
-policy has to say the same thing.
+The listing describes monitoring a relative's home. Be straightforward that
+alerts derive from cameras the household already installed, that the app shows
+summaries rather than a live feed, and that it is not a medical device. Vague
+health claims invite a **Guideline 1.4.1** round trip.
 
 ---
 
@@ -84,7 +61,6 @@ policy has to say the same thing.
 
 - Apple Developer Program membership ($99/yr), active
 - An App ID for `com.remycamera.alerts`
-- An **APNs key** (`.p8`) — the same one `server/` uses
 - Node from `.nvmrc`: `nvm use`
 
 ```bash
@@ -93,8 +69,8 @@ eas login
 eas init            # fills in extra.eas.projectId in app.json
 ```
 
-Then replace the placeholders in `eas.json` → `submit.production.ios`:
-`ascAppId` (App Store Connect → App Information → Apple ID) and `appleTeamId`.
+`eas submit` resolves the App Store Connect app and team interactively, so there
+is nothing else to fill in beyond the control-plane URL.
 
 ## Build
 
@@ -103,73 +79,70 @@ eas build --profile production --platform ios
 ```
 
 EAS handles signing and increments the build number remotely
-(`appVersionSource: "remote"`). Bump the marketing version in `app.json`
-(`expo.version`) by hand for each release users should see as new.
+(`appVersionSource: "remote"`). Bump `expo.version` in `app.json` by hand for
+each release users should see as new.
+
+**Use `production`, not `production-critical`.** The latter requests the Apple
+Critical Alerts entitlement, which fails signing until Apple grants it — and the
+app does not send pushes yet regardless. See the Push section in the README.
 
 ### Building locally instead
 
 ```bash
-REMY_CRITICAL_ALERTS=1 npx expo prebuild --clean   # omit the env var pre-approval
+npx expo prebuild --clean
 open ios/RemyAlerts.xcworkspace
 ```
 
-Then Product → Archive → Distribute App. Use the `.xcworkspace`, never the
+Product → Archive → Distribute App. Use the `.xcworkspace`, never the
 `.xcodeproj` — CocoaPods.
 
-## Submit
+## TestFlight
 
 ```bash
 eas submit --profile production --platform ios --latest
 ```
 
-Uploads the most recent build to App Store Connect. From there: TestFlight for
-testing, or fill in metadata and submit for review.
+Uploads the latest build; Apple processes it in 5–15 minutes. Then App Store
+Connect → **TestFlight** → **Internal Testing** → create a group → add testers
+by Apple ID. Internal testers (up to 100, on your team) get it immediately with
+**no review**. External testers need a review round.
+
+For putting it on your own family's phones, internal TestFlight is the whole
+answer — no review, no privacy policy, no store listing.
 
 ## App Store Connect metadata
-
-Push-notification apps draw extra scrutiny, and critical alerts more so. Be
-explicit rather than minimal.
 
 - **Category**: Medical, or Health & Fitness
 - **Age rating**: 4+
 - **Encryption**: already declared via `ITSAppUsesNonExemptEncryption: false` —
   the app uses only HTTPS, which is exempt
 - **Screenshots**: 6.7" and 6.5" iPhone required. The alert feed with a few
-  realistic entries, plus the Settings screen showing delivery status.
-- **Review notes** — write these, they matter here:
+  realistic entries, plus an event detail screen.
+- **Sign-in required**: yes — supply the demo account from blocker 2
+- **Review notes**:
 
-  > Remy Alerts notifies family caregivers about safety events from Reolink
+  > Remy Alerts shows family caregivers the safety events Remy flags from
   > cameras in a relative's home (overnight door activity, stove-area activity).
   >
-  > The alert feed is populated by our backend. We have seeded the review
-  > account with sample alerts so the feed is not empty.
+  > Sign in with the demo account provided. It has access to a home with sample
+  > events, which appear on the main screen. Tap any event for detail and to
+  > mark it reviewed.
   >
-  > To see a live notification: open Settings inside the app and tap "Send test
-  > critical alert". This delivers a real push to the device.
-  >
-  > [If submitting with the entitlement] This app uses the Critical Alerts
-  > entitlement, approved by Apple on <date>, to notify caregivers of overnight
-  > wandering and stove-safety events that could indicate immediate danger.
-
-**Seed the review environment with sample alerts.** A reviewer who opens the app
-to an empty "All quiet" screen has no way to tell a working app from a broken
-one, and will assume broken.
+  > The app does not send push notifications in this version.
 
 ## Release checklist
 
-- [ ] `https://alerts.remycamera.com/health` reachable from outside your network
-- [ ] Production APNs key installed server-side, `APNS_USE_SANDBOX=false`
-- [ ] Sample alerts seeded so the feed is not empty
+- [ ] `EXPO_PUBLIC_CONTROL_PLANE_URL` replaced in all four `eas.json` profiles
+- [ ] Control plane reachable from outside your network
+- [ ] Demo account created, granted a home, and **verified to show events**
 - [ ] `npm run typecheck` clean
 - [ ] `expo.version` bumped in `app.json`
-- [ ] `eas.json` placeholders replaced
 - [ ] Privacy policy URL live
-- [ ] Correct build profile for your entitlement status
+- [ ] Built with `production` (not `production-critical`)
 - [ ] Installed from TestFlight and tested on a real phone first
 
-### One thing that will bite you
+### When push is added later
 
-**TestFlight and App Store builds use production APNs, not sandbox.** A build
-that pushed fine in development will go silent the moment it comes from
-TestFlight unless the server has `APNS_USE_SANDBOX=false`. `GET /health` reports
-which environment the server is configured for — check it after deploying.
+**TestFlight and App Store builds use production APNs, not sandbox** — a build
+that pushed fine in development goes silent from TestFlight unless the sending
+service is configured for production. That one catches everybody.
