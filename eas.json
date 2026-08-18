@@ -7,35 +7,36 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "ios": { "simulator": false },
+      "ios": {
+        "simulator": false
+      },
       "env": {
-        "EXPO_PUBLIC_API_URL": ""
+        "EXPO_PUBLIC_CONTROL_PLANE_URL": "https://REPLACE-WITH-CONTROL-PLANE.up.railway.app"
       }
     },
-
     "preview": {
       "distribution": "internal",
-      "ios": { "simulator": false },
+      "ios": {
+        "simulator": false
+      },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://app.remycamera.com"
+        "EXPO_PUBLIC_CONTROL_PLANE_URL": "https://REPLACE-WITH-CONTROL-PLANE.up.railway.app"
       }
     },
-
     "production": {
       "autoIncrement": true,
       "ios": {
         "resourceClass": "m-medium"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://app.remycamera.com"
+        "EXPO_PUBLIC_CONTROL_PLANE_URL": "https://REPLACE-WITH-CONTROL-PLANE.up.railway.app"
       }
     },
-
     "production-critical": {
       "extends": "production",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://app.remycamera.com",
-        "REMY_CRITICAL_ALERTS": "1"
+        "REMY_CRITICAL_ALERTS": "1",
+        "EXPO_PUBLIC_CONTROL_PLANE_URL": "https://REPLACE-WITH-CONTROL-PLANE.up.railway.app"
       }
     }
   },

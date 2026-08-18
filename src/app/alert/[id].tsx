@@ -1,52 +1,59 @@
+import { Image } from 'expo-image';
 import { useLocalSearchParams } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { severityStyle } from '@/constants/severity';
+import { humanizeCategory, severityOf, severityStyle } from '@/constants/severity';
 import { Spacing } from '@/constants/theme';
+import { useSites } from '@/hooks/use-sites';
 import { useTheme } from '@/hooks/use-theme';
-import { acknowledgeAlert, fetchAlert } from '@/lib/api';
-import type { Alert } from '@/lib/types';
+import { acknowledgeEvent, fetchEvent } from '@/lib/remy-api';
+import type { RemyEvent } from '@/lib/types';
 
-export default function AlertDetail() {
+export default function EventDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const theme = useTheme();
-  const [alert, setAlert] = useState<Alert | null>(null);
+  const { site } = useSites();
+
+  const [event, setEvent] = useState<RemyEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [acking, setAcking] = useState(false);
 
+  const eventId = Number(id);
+
   useEffect(() => {
-    if (!id) return;
-    fetchAlert(id)
-      .then(setAlert)
+    if (!site || !Number.isFinite(eventId)) return;
+    fetchEvent(site, eventId)
+      .then(setEvent)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, [id]);
+  }, [site, eventId]);
 
   const onAcknowledge = useCallback(async () => {
-    if (!id) return;
+    if (!site || !event) return;
     setAcking(true);
     try {
-      setAlert(await acknowledgeAlert(id));
+      await acknowledgeEvent(site, event.id);
+      // The site returns feedback, not the event, so reflect the change locally.
+      setEvent({ ...event, reviewed: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setAcking(false);
     }
-  }, [id]);
+  }, [site, event]);
 
   if (error) {
     return (
       <View style={styles.center}>
-        <ThemedText type="small" themeColor="textSecondary">
+        <ThemedText type="small" themeColor="textSecondary" style={styles.centered}>
           {error}
         </ThemedText>
       </View>
     );
   }
 
-  if (!alert) {
+  if (!event) {
     return (
       <View style={styles.center}>
         <ActivityIndicator />
@@ -54,8 +61,7 @@ export default function AlertDetail() {
     );
   }
 
-  const severity = severityStyle(alert.severity);
-  const acknowledged = alert.acknowledged_at !== null;
+  const severity = severityStyle(severityOf(event));
 
   return (
     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
@@ -65,35 +71,46 @@ export default function AlertDetail() {
         </ThemedText>
       </View>
 
-      <ThemedText type="subtitle">{alert.title}</ThemedText>
-      <ThemedText type="default" themeColor="textSecondary">
-        {alert.body}
+      <ThemedText type="subtitle">
+        {event.title || humanizeCategory(event.remy_category)}
       </ThemedText>
 
-      <View style={[styles.meta, { backgroundColor: theme.backgroundElement }]}>
-        <Row label="Source" value={alert.source ?? '—'} />
-        <Row label="Received" value={new Date(alert.created_at).toLocaleString()} />
-        <Row
-          label="Acknowledged"
-          value={acknowledged ? new Date(alert.acknowledged_at!).toLocaleString() : 'Not yet'}
-        />
-      </View>
-
-      {alert.event_url ? (
-        <Pressable
-          onPress={() => WebBrowser.openBrowserAsync(alert.event_url!)}
-          style={[styles.secondary, { backgroundColor: theme.backgroundElement }]}>
-          <ThemedText type="default">View camera event</ThemedText>
-        </Pressable>
+      {event.thumbnail_url ? (
+        <Image source={{ uri: event.thumbnail_url }} style={styles.image} contentFit="cover" />
       ) : null}
 
-      {!acknowledged ? (
+      {event.ai_summary ? (
+        <ThemedText type="default" themeColor="textSecondary">
+          {event.ai_summary}
+        </ThemedText>
+      ) : null}
+
+      {event.uncertainty_reason ? (
+        <View style={[styles.note, { backgroundColor: theme.backgroundElement }]}>
+          <ThemedText type="smallBold" themeColor="textSecondary">
+            Remy is not certain
+          </ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            {event.uncertainty_reason}
+          </ThemedText>
+        </View>
+      ) : null}
+
+      <View style={[styles.meta, { backgroundColor: theme.backgroundElement }]}>
+        <Row label="Room" value={humanizeCategory(event.room)} />
+        <Row label="Category" value={humanizeCategory(event.remy_category)} />
+        <Row label="When" value={new Date(event.start_time).toLocaleString()} />
+        {event.confidence ? <Row label="Confidence" value={event.confidence} /> : null}
+        <Row label="Reviewed" value={event.reviewed ? 'Yes' : 'Not yet'} />
+      </View>
+
+      {!event.reviewed ? (
         <Pressable
           onPress={onAcknowledge}
           disabled={acking}
           style={[styles.primary, { backgroundColor: severity.color, opacity: acking ? 0.6 : 1 }]}>
           <ThemedText type="default" style={styles.primaryText}>
-            {acking ? 'Acknowledging…' : 'Acknowledge'}
+            {acking ? 'Marking reviewed…' : 'Mark reviewed'}
           </ThemedText>
         </Pressable>
       ) : null}
@@ -107,50 +124,33 @@ function Row({ label, value }: { label: string; value: string }) {
       <ThemedText type="small" themeColor="textSecondary">
         {label}
       </ThemedText>
-      <ThemedText type="small">{value}</ThemedText>
+      <ThemedText type="small" style={styles.rowValue}>
+        {value}
+      </ThemedText>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    padding: Spacing.three,
-    gap: Spacing.three,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.four,
-  },
+  content: { padding: Spacing.three, gap: Spacing.three },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.four },
+  centered: { textAlign: 'center' },
   badge: {
     alignSelf: 'flex-start',
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.half,
     borderRadius: 6,
   },
-  meta: {
+  image: {
+    width: '100%',
+    aspectRatio: 16 / 9,
     borderRadius: 12,
-    padding: Spacing.three,
-    gap: Spacing.two,
+    backgroundColor: 'rgba(127,127,127,0.15)',
   },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: Spacing.three,
-  },
-  primary: {
-    alignItems: 'center',
-    paddingVertical: Spacing.three,
-    borderRadius: 12,
-  },
-  primaryText: {
-    color: '#ffffff',
-    fontWeight: '600',
-  },
-  secondary: {
-    alignItems: 'center',
-    paddingVertical: Spacing.three,
-    borderRadius: 12,
-  },
+  note: { borderRadius: 12, padding: Spacing.three, gap: Spacing.half },
+  meta: { borderRadius: 12, padding: Spacing.three, gap: Spacing.two },
+  row: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.three },
+  rowValue: { flexShrink: 1, textAlign: 'right' },
+  primary: { alignItems: 'center', paddingVertical: Spacing.three, borderRadius: 12 },
+  primaryText: { color: '#ffffff', fontWeight: '600' },
 });

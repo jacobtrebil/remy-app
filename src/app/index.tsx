@@ -1,83 +1,99 @@
-import * as Notifications from 'expo-notifications';
 import { Link, router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  View,
+} from 'react-native';
 
 import { AlertCard } from '@/components/alert-card';
-import { StatusBanner } from '@/components/status-banner';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { useAlertRegistration } from '@/hooks/use-alert-registration';
+import { useSites } from '@/hooks/use-sites';
 import { useTheme } from '@/hooks/use-theme';
-import { fetchAlerts } from '@/lib/api';
-import type { Alert } from '@/lib/types';
+import { IS_CONFIGURED } from '@/lib/config';
+import { fetchSafetyAlerts } from '@/lib/remy-api';
+import type { RemyEvent, Site } from '@/lib/types';
 
-export default function AlertFeed() {
+export default function SafetyAlertFeed() {
   const theme = useTheme();
-  const registration = useAlertRegistration();
-  const [alerts, setAlerts] = useState<Alert[] | null>(null);
+  const { site, sites, loading: sitesLoading, error: sitesError, refresh: refreshSites } = useSites();
+
+  const [events, setEvents] = useState<RemyEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (target: Site | null) => {
+    if (!target) {
+      setEvents(null);
+      return;
+    }
     try {
-      setAlerts(await fetchAlerts());
+      setEvents(await fetchSafetyAlerts(target));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
-  // Refresh whenever the feed comes back into view (e.g. after acknowledging).
+  // Reload on focus so acknowledging an event updates the list behind it.
   useFocusEffect(
     useCallback(() => {
-      void load();
-    }, [load])
+      void load(site);
+    }, [load, site])
   );
 
-  // A push arriving while the app is open should update the list behind it.
-  useEffect(() => {
-    const sub = Notifications.addNotificationReceivedListener(() => void load());
-    return () => sub.remove();
-  }, [load]);
-
-  const { refresh: refreshRegistration } = registration;
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([load(), refreshRegistration()]);
+    await refreshSites();
+    await load(site);
     setRefreshing(false);
-  }, [load, refreshRegistration]);
+  }, [load, refreshSites, site]);
 
   return (
     <FlatList
-      data={alerts ?? []}
-      keyExtractor={(item) => item.id}
+      data={events ?? []}
+      keyExtractor={(item) => String(item.id)}
       contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       ListHeaderComponent={
         <View style={styles.header}>
-          <StatusBanner {...registration} onPrompt={registration.prompt} />
+          {site ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              {site.name}
+              {sites && sites.length > 1 ? ' · tap Settings to switch home' : ''}
+            </ThemedText>
+          ) : null}
           <Link href="/settings" asChild>
-            {/* Flattened: expo-router's <Link asChild> renders a Slot, which
-                rejects an array style on its child. */}
             <Pressable
               style={StyleSheet.flatten([
                 styles.settings,
                 { backgroundColor: theme.backgroundElement },
               ])}>
-              <ThemedText type="small">Settings &amp; test alert</ThemedText>
+              <ThemedText type="small">Settings</ThemedText>
             </Pressable>
           </Link>
         </View>
       }
       ListEmptyComponent={
-        <Empty loading={alerts === null && !error} error={error} onRetry={load} />
+        <Empty
+          loading={sitesLoading || (site !== null && events === null && !error)}
+          error={sitesError ?? error}
+          hasSite={site !== null}
+          onRetry={() => {
+            void refreshSites();
+            void load(site);
+          }}
+        />
       }
       renderItem={({ item }) => (
         <AlertCard
-          alert={item}
-          onPress={() => router.push({ pathname: '/alert/[id]', params: { id: item.id } })}
+          event={item}
+          onPress={() => router.push({ pathname: '/alert/[id]', params: { id: String(item.id) } })}
         />
       )}
     />
@@ -87,16 +103,29 @@ export default function AlertFeed() {
 function Empty({
   loading,
   error,
+  hasSite,
   onRetry,
 }: {
   loading: boolean;
   error: string | null;
+  hasSite: boolean;
   onRetry: () => void;
 }) {
   if (loading) {
     return (
       <View style={styles.empty}>
         <ActivityIndicator />
+      </View>
+    );
+  }
+
+  if (!IS_CONFIGURED) {
+    return (
+      <View style={styles.empty}>
+        <ThemedText type="default">Not configured</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" style={styles.centered}>
+          Set EXPO_PUBLIC_CONTROL_PLANE_URL to the deployed Remy control plane and rebuild.
+        </ThemedText>
       </View>
     );
   }
@@ -115,25 +144,30 @@ function Empty({
     );
   }
 
+  if (!hasSite) {
+    return (
+      <View style={styles.empty}>
+        <ThemedText type="default">No homes yet</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" style={styles.centered}>
+          You don&apos;t have access to any homes. Ask the home&apos;s owner to invite you.
+        </ThemedText>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.empty}>
       <ThemedText type="default">All quiet</ThemedText>
       <ThemedText type="small" themeColor="textSecondary" style={styles.centered}>
-        Alerts from your Remy cameras will appear here.
+        Nothing needs your review right now.
       </ThemedText>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    padding: Spacing.three,
-    gap: Spacing.two,
-  },
-  header: {
-    gap: Spacing.two,
-    marginBottom: Spacing.one,
-  },
+  content: { padding: Spacing.three, gap: Spacing.two },
+  header: { gap: Spacing.two, marginBottom: Spacing.one },
   settings: {
     alignItems: 'center',
     paddingVertical: Spacing.three,
@@ -144,7 +178,5 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     paddingTop: Spacing.six,
   },
-  centered: {
-    textAlign: 'center',
-  },
+  centered: { textAlign: 'center' },
 });

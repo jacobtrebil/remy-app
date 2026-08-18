@@ -1,199 +1,108 @@
 # Remy Alerts
 
-The iOS companion app for [remycamera.com](https://remycamera.com). Its one job is to
-get a caregiver's attention when something actually matters — using **Apple Critical
-Alerts**, which play at full volume and bypass silent mode, Do Not Disturb and Focus.
+The iOS companion app for [remycamera.com](https://remycamera.com). A caregiver signs
+in with their Remy account and sees the safety alerts from the homes they have
+access to — the events Remy's pipeline flagged for review.
 
-Two pieces:
+It reads the **existing** remy-camera backend. Nothing new to deploy.
 
-| Path      | What it is                                                             |
-| --------- | ---------------------------------------------------------------------- |
-| `src/`    | Expo / React Native app — alert feed, permissions, acknowledge, self-test |
-| `server/` | FastAPI push service — device registry + direct APNs HTTP/2 sender      |
+```
+                    ┌─ GET /me/sites ──────────┐
+📱 Remy Alerts ─────┤  (Supabase JWT)          ├──▶ control plane
+                    └─ GET /api/events/… ──────┴──▶ site instance (that home)
+                       (Supabase JWT + X-Remy-Home)
+```
+
+| Path      | What it is                                                          |
+| --------- | ------------------------------------------------------------------- |
+| `src/`    | The app — sign-in, safety alert feed, event detail, home switcher    |
+| `server/` | Standalone APNs push service, **not used yet** (see Push, below)     |
 
 Shipping to the App Store: **[RELEASE.md](./RELEASE.md)**.
 
-```
-remy-camera backend ──POST /api/alerts──▶ server/ ──APNs HTTP/2──▶ 📱 Remy Alerts
-```
+## How it fits together
 
----
+The app carries no backend of its own. It borrows remy-camera's:
 
-## ⚠️ Read this first: the entitlement
+1. **Identity** — Supabase, the same account as the web app. One login for both.
+2. **Which homes** — `GET {control-plane}/me/sites` returns each home the caregiver
+   has a grant on, with their role and access level, plus that home's `endpoint`.
+3. **The alerts** — `GET {site.endpoint}/api/events/needs-review`, sent with the
+   Supabase JWT and `X-Remy-Home: {site.id}`. The site checks the grant with the
+   control plane on every request, so access revocation takes effect in seconds.
+4. **Acknowledging** — `POST /api/events/{id}/feedback` with
+   `feedback_type: "reviewed"`, the one value that also sets `event.reviewed`.
 
-Critical alerts do **not** work without a special entitlement that Apple grants
-case-by-case. Everything else in this repo is wired up and ready; this is the one
-step you cannot do yourself.
-
-1. Apply at <https://developer.apple.com/contact/request/notifications-critical-alerts>.
-   Apple expects a genuine health/safety/public-safety justification — Remy's
-   wandering and stove-safety events qualify, generic engagement pushes do not.
-   Turnaround is typically days to weeks.
-2. Once approved, the entitlement is attached to your App ID. Regenerate your
-   provisioning profiles (`eas build` does this automatically).
-3. `app.config.ts` adds it when `REMY_CRITICAL_ALERTS=1`, and leaves it out
-   otherwise — Xcode refuses to sign a build requesting an entitlement your App
-   ID does not hold, so it cannot be on by default:
-
-   ```bash
-   REMY_CRITICAL_ALERTS=1 npx expo prebuild --clean
-   ```
-
-**Before approval:** the app builds and runs, but iOS silently ignores
-`allowCriticalAlerts`. `sound: {critical: 1}` payloads are delivered as ordinary
-notifications, so Focus and the ringer switch will silence them. The Settings
-screen reports this honestly — "Critical alerts: Not allowed" — so you can tell
-the two failure modes apart.
-
-Also note: users get a **second, separate permission prompt** for critical alerts,
-and they can revoke it independently in iOS Settings. `criticalGranted` in the
-app tracks that, and it is sent to the server on every registration.
-
----
+Access control is entirely the backend's. The app never decides what someone may
+see; it shows what the site returns for that caregiver's grant.
 
 ## Setup
 
-### 1. The app
-
-Expo SDK 57 needs Node ≥ 20.19.4 — `.nvmrc` pins a known-good version:
+Expo SDK 57 needs Node ≥ 20.19.4 — `.nvmrc` pins a known-good version.
 
 ```bash
-nvm use                    # or: nvm install
+nvm use
 npm install
-cp env.example .env        # optional in dev; see src/lib/config.ts for the fallback
+cp env.example .env
 ```
 
-Critical alerts need a **physical device** and a **development build** — Expo Go
-cannot carry custom entitlements, and simulators never receive APNs pushes.
+Then set **`EXPO_PUBLIC_CONTROL_PLANE_URL`** in `.env` to the deployed control
+plane. That is the only value the app needs — every site URL comes back from
+`/me/sites`. Without it the app says "Not configured" rather than failing oddly.
+The Supabase project defaults are already baked into `src/lib/config.ts`.
 
 ```bash
-npx expo prebuild --clean   # generates ios/ with the entitlement wired in
-npx expo run:ios --device   # build and install on a connected iPhone
+npx expo run:ios --device
 ```
 
-Or via EAS, which handles the signing:
+A physical device is not required for this app — everything works in the
+simulator, since there are no push notifications yet.
 
-```bash
-eas build --profile development --platform ios
-```
+## Severity
 
-Set `extra.eas.projectId` in `app.json` first (`eas init` fills it in).
+The backend has no severity field, so the app derives one from `remy_category`
+in `src/constants/severity.ts`:
 
-### 2. The push service
+| Shown      | When                                                          |
+| ---------- | ------------------------------------------------------------- |
+| `SAFETY`   | stove safety, night exit, wandering, fall, fire, smoke        |
+| `REVIEW`   | anything else with `needs_review`                             |
+| `ACTIVITY` | everything else                                               |
 
-```bash
-cd server
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp env.example .env         # then fill in APNs credentials
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+If the pipeline gains categories, add them to `CRITICAL_CATEGORIES` — an unknown
+category degrades to `REVIEW`, never silently to `ACTIVITY`.
 
-`--host 0.0.0.0` matters: the phone reaches the server over the LAN, not localhost.
+## Push notifications — not wired up
 
-Get the APNs key from **Apple Developer → Certificates, Identifiers & Profiles →
-Keys** — create one with "Apple Push Notifications service (APNs)" enabled. The
-`.p8` file downloads exactly once; `.gitignore` covers `*.p8`.
+The app does **not** send or receive push notifications yet. Settings says so
+plainly rather than showing a permission toggle that does nothing.
 
-Check the wiring:
+`server/` holds a complete, working APNs service (device registry, HTTP/2 with
+`.p8` provider tokens, critical-alert payloads) from when this app was going to
+own its own backend. It is kept because it is the natural basis for adding push:
 
-```bash
-curl localhost:8000/health
-# {"ok":true,"apns_configured":true,"apns_environment":"sandbox",...}
-```
+- **Apple Critical Alerts** need an entitlement Apple grants case by case —
+  request it at
+  <https://developer.apple.com/contact/request/notifications-critical-alerts>.
+  `app.config.ts` adds the entitlement only when `REMY_CRITICAL_ALERTS=1`, since
+  Xcode cannot sign a build requesting one the App ID lacks.
+- Whatever sends the pushes needs to know which caregiver to notify, which is a
+  control-plane concern (grants), not something the app can decide.
 
-### 3. Verify it actually works
-
-The only test that counts:
-
-1. Open the app, tap **Settings & test alert**, grant both prompts.
-2. Confirm **Critical alerts: Allowed**.
-3. Lock the phone, flip the mute switch, turn on Do Not Disturb.
-4. Tap **Send test critical alert**.
-
-If it rings at full volume through all of that, you're done. If it arrives
-silently, the entitlement isn't active on that build.
-
----
-
-## Sending an alert from remy-camera
-
-```python
-import httpx
-
-httpx.post(
-    "http://localhost:8000/api/alerts",
-    headers={"x-api-key": INTERNAL_API_KEY},
-    json={
-        "severity": "critical",           # critical | warning | info
-        "title": "Front door opened at 2:14 AM",
-        "body": "Entryway activity detected overnight. Tap to review.",
-        "source": "Front Door",
-        "event_url": "https://app.remycamera.com/events/abc123",
-    },
-    timeout=10,
-)
-```
-
-Omit `device_ids` to fan out to every registered device. See
-`server/examples/send_alert.py` for a copy-pasteable client.
-
-**Only `severity: "critical"` produces a critical alert.** `warning` maps to
-iOS's time-sensitive interruption level and `info` to a normal notification.
-Use `critical` sparingly — it is the one channel that can wake someone at 3 AM,
-and it stops working the moment people start ignoring it.
-
-### API
-
-| Method   | Path                    | Auth            | Purpose                          |
-| -------- | ----------------------- | --------------- | -------------------------------- |
-| `GET`    | `/health`               | none            | Config and connectivity check    |
-| `POST`   | `/api/devices`          | `API_KEY`       | Register / refresh a push token  |
-| `DELETE` | `/api/devices/{id}`     | `API_KEY`       | Unregister                       |
-| `GET`    | `/api/alerts`           | `API_KEY`       | Recent alerts (app feed)         |
-| `GET`    | `/api/alerts/{id}`      | `API_KEY`       | One alert                        |
-| `POST`   | `/api/alerts/{id}/ack`  | `API_KEY`       | Acknowledge                      |
-| `POST`   | `/api/alerts/test`      | `API_KEY`       | Self-test to one device          |
-| `POST`   | `/api/alerts`           | `INTERNAL_API_KEY` | **Create + send** (remy-camera) |
-
-Two keys on purpose: `API_KEY` ships inside the app bundle and is therefore
-public, so it only gates registration and reads. `INTERNAL_API_KEY` is the one
-that can actually send pushes and lives only on remy-camera's backend.
-
----
-
-## The alert sound
-
-`assets/sounds/remy_critical.wav` is generated by `scripts/make-alert-sound.py`
-(`npm run sound`) — a two-tone alarm chosen to be unmistakably not a text
-message. Swap in your own if you like; the constraints are:
-
-- ≤ 30 seconds, `.wav` / `.aiff` / `.caf`
-- **filename must be `[a-z0-9_]` only** — the same plugin copies it into
-  Android's `res/raw`, and a hyphen fails `expo prebuild` outright
-- listed in the `expo-notifications` plugin's `sounds` array in `app.json`
-- `CRITICAL_SOUND` in `server/.env` must match the filename exactly
-
-Then re-run `npx expo prebuild --clean` so it lands in the bundle.
+Until then the feed is pull-to-refresh.
 
 ## Gotchas
 
-- **Sandbox vs production tokens are not interchangeable.** A dev-build token
-  sent to `api.push.apple.com` returns `BadDeviceToken`. Flip `APNS_USE_SANDBOX`
-  to match the build; `/health` reports which one is live.
-- **TestFlight uses production APNs**, even though it feels like a dev build.
-- **Device tokens rotate.** The app re-registers on every launch, and the server
-  drops tokens APNs reports as `Unregistered` or `BadDeviceToken`.
-- **`interruption-level: critical` also needs the entitlement** — it is set
-  alongside the critical sound in `server/app/apns.py`.
-- **Android** is scaffolded (notification channel with `bypassDnd`) but there is
-  no FCM sender yet; `_fan_out` returns `UnsupportedPlatform` for those devices.
-- **`types/expo.d.ts` is committed on purpose.** Expo writes an equivalent
-  `expo-env.d.ts` on first `expo start`, but that file is gitignored — without
-  this one, `npm run typecheck` fails on a clean clone.
-
-## Storage
-
-SQLite at `server/data/remy.db`, two tables, no ORM. Fine for a single household
-and a handful of devices. If this grows to real multi-tenant use, that's the
-piece to replace — the rest of the service doesn't care.
+- **`.expo/types/router.d.ts` is committed**, unusually. `typedRoutes` makes
+  `tsc` depend on it and there is no `expo typegen` to rebuild it without
+  booting the dev server, so a clean clone could not typecheck otherwise. It
+  regenerates on `expo start`; commit the change when routes change.
+- **`types/expo.d.ts` is committed** for the same reason — Expo's generated
+  `expo-env.d.ts` is gitignored, and without it CSS-module imports fail to
+  typecheck on a clean clone.
+- **A site that serves its web app from the same origin** answers unknown paths
+  with `200` + `index.html`. `src/lib/remy-api.ts` checks the content type, so
+  that surfaces as a clear message instead of a JSON parse error.
+- **Sessions live in AsyncStorage, not SecureStore** — SecureStore caps values
+  at 2048 bytes and a Supabase session exceeds that, which would silently sign
+  the user out on every launch.

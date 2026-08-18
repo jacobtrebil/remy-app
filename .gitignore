@@ -5,6 +5,10 @@ node_modules/
 
 # Expo
 .expo/
+# ...except the generated route types: typedRoutes makes tsc depend on them,
+# and there is no `expo typegen` to regenerate them without booting the dev server,
+# so a clean clone could not typecheck without this.
+!.expo/types/router.d.ts
 dist/
 web-build/
 expo-env.d.ts

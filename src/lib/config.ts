@@ -1,30 +1,26 @@
 import Constants from 'expo-constants';
 
 /**
- * Base URL of the push service in `server/`.
- *
- * Set EXPO_PUBLIC_API_URL in .env (see .env.example). On a physical device
- * `localhost` points at the phone, so during development this needs to be your
- * Mac's LAN address — Expo hands us the dev-server host, which we fall back to.
+ * Supabase project — the same identity used by the remy-camera web app.
+ * Both values are publishable and safe to ship in the bundle.
  */
-function resolveApiUrl(): string {
-  const explicit = process.env.EXPO_PUBLIC_API_URL;
-  if (explicit) return explicit.replace(/\/$/, '');
+export const SUPABASE_URL =
+  process.env.EXPO_PUBLIC_SUPABASE_URL ?? 'https://eausnsqtrtxwngxwvqlc.supabase.co';
 
-  // hostUri looks like "192.168.1.24:8081" when running `expo start`.
-  const host = Constants.expoConfig?.hostUri?.split(':')[0];
-  if (host) return `http://${host}:8000`;
-
-  return 'http://localhost:8000';
-}
-
-export const API_URL = resolveApiUrl();
+export const SUPABASE_ANON_KEY =
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? 'sb_publishable_8GtALjLP4uYpOL_ETLZVig_cRX1DNH4';
 
 /**
- * Shared secret for the device-facing endpoints. This is a low-value token that
- * only gates registration and reads — the p8 signing key that can actually send
- * pushes lives on the server and never ships in the bundle.
+ * The deployed control plane, which owns the site registry and answers
+ * GET /me/sites for the signed-in caregiver. Each site it returns carries its
+ * own `endpoint`, so this is the only backend URL the app needs configured.
  */
-export const API_KEY = process.env.EXPO_PUBLIC_API_KEY ?? '';
+export const CONTROL_PLANE_URL = (process.env.EXPO_PUBLIC_CONTROL_PLANE_URL ?? '').replace(
+  /\/$/,
+  ''
+);
+
+/** False until EXPO_PUBLIC_CONTROL_PLANE_URL is set; the UI says so rather than failing obscurely. */
+export const IS_CONFIGURED = CONTROL_PLANE_URL.length > 0;
 
 export const APP_VERSION = Constants.expoConfig?.version ?? '0.0.0';
