@@ -11,10 +11,6 @@
     "ios": {
       "bundleIdentifier": "com.remycamera.alerts",
       "supportsTablet": false,
-      "icon": "./assets/expo.icon",
-      "entitlements": {
-        "com.apple.developer.usernotifications.critical-alerts": true
-      },
       "infoPlist": {
         "UIBackgroundModes": ["remote-notification"],
         "ITSAppUsesNonExemptEncryption": false
@@ -47,7 +43,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/icon.png",
+          "icon": "./assets/images/notification-icon.png",
           "color": "#D93025",
           "sounds": ["./assets/sounds/remy_critical.wav"],
           "enableBackgroundRemoteNotifications": true

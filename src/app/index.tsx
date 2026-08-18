@@ -59,7 +59,13 @@ export default function AlertFeed() {
         <View style={styles.header}>
           <StatusBanner {...registration} onPrompt={registration.prompt} />
           <Link href="/settings" asChild>
-            <Pressable style={[styles.settings, { backgroundColor: theme.backgroundElement }]}>
+            {/* Flattened: expo-router's <Link asChild> renders a Slot, which
+                rejects an array style on its child. */}
+            <Pressable
+              style={StyleSheet.flatten([
+                styles.settings,
+                { backgroundColor: theme.backgroundElement },
+              ])}>
               <ThemedText type="small">Settings &amp; test alert</ThemedText>
             </Pressable>
           </Link>

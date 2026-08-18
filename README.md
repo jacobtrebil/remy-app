@@ -11,6 +11,8 @@ Two pieces:
 | `src/`    | Expo / React Native app — alert feed, permissions, acknowledge, self-test |
 | `server/` | FastAPI push service — device registry + direct APNs HTTP/2 sender      |
 
+Shipping to the App Store: **[RELEASE.md](./RELEASE.md)**.
+
 ```
 remy-camera backend ──POST /api/alerts──▶ server/ ──APNs HTTP/2──▶ 📱 Remy Alerts
 ```
@@ -29,10 +31,12 @@ step you cannot do yourself.
    Turnaround is typically days to weeks.
 2. Once approved, the entitlement is attached to your App ID. Regenerate your
    provisioning profiles (`eas build` does this automatically).
-3. `app.json` already declares it:
+3. `app.config.ts` adds it when `REMY_CRITICAL_ALERTS=1`, and leaves it out
+   otherwise — Xcode refuses to sign a build requesting an entitlement your App
+   ID does not hold, so it cannot be on by default:
 
-   ```json
-   "entitlements": { "com.apple.developer.usernotifications.critical-alerts": true }
+   ```bash
+   REMY_CRITICAL_ALERTS=1 npx expo prebuild --clean
    ```
 
 **Before approval:** the app builds and runs, but iOS silently ignores
